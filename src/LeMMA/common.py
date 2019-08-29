@@ -28,6 +28,7 @@ Gek S. Low <geksiong@yahoo.com>
 # Common
 from GSTkWidgets import *
 import os
+import signal
 import re
 import subprocess
 import cPickle
@@ -68,6 +69,8 @@ libDir = ""
 playerIsPaused = True
 
 outputWindow = Text()
+
+childProcess = None
 
 def detectPlatform():
 	global isLinux
@@ -201,6 +204,7 @@ def readSettings():
 
 def playMMA():
 	global mmaPath
+	global childProcess
 
 	# validate the paths first
 	if not os.path.exists(mmaPath):
@@ -231,7 +235,8 @@ def playMMA():
 	#	quote pythonPath to handle correctly space characters in it
 	cmd = os.path.normcase("\"" + pythonPath + "\" " + mmaPath + " \"" + currentdir + "/_temp_.mma\"")
 	logging.debug("[playMMA] Calling process '" + cmd + "'")
-	pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE).stdout
+	childProcess = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+	pipe = childProcess.stdout
 	output = pipe.read()
 	status = pipe.close()
 
@@ -254,6 +259,7 @@ def playMMA():
 	
 def playMMA_external(filename):
 	global midiPlayer
+	global childProcess
 
 	realmidipath = re.compile(r'\s-[^\s]*').sub("", midiPlayer)	# strip any command-line options
 	if not os.path.exists(realmidipath):
@@ -272,7 +278,9 @@ def playMMA_external(filename):
 	midiopts = midiPlayer.replace(realmidipath, "")	# get any command-line options in midiPlayer
 	cmd = os.path.normcase("\"" + realmidipath + "\" " + midiopts + " \"" + filename + "\"")
 	logging.debug("[playMMA] Calling process '" + cmd + "'")
-	pipe = subprocess.Popen(cmd, shell=useShell, stdout=None).stdout
+	childProcess = subprocess.Popen(cmd, shell=useShell, stdout=None, preexec_fn=os.setsid)
+	pipe = childProcess.stdout
+	logging.debug("[playMMA]: process is {0}, useShell is {1}".format( childProcess.pid, useShell))
 
 
 def playMMA_pygame(filename):
@@ -293,6 +301,7 @@ def playMMA_pygame(filename):
 def stop_playMMA():
 	global hasPyGame
 	global playerIsPaused
+	global childProcess
 
 	if midiEngine == "PyGame":
 		if not hasPyGame:
@@ -301,7 +310,11 @@ def stop_playMMA():
 			pygame.mixer.music.stop()
 			playerIsPaused = False
 	else:
-		tkMessageBox.showinfo("Not available", "Stop playback is available only for PyGame midi engine.")
+		if isLinux :
+			logging.debug("[stop_playMMA]: process is {0}".format( childProcess.pid))
+			os.killpg(childProcess.pid, signal.SIGTERM)
+		else:
+			tkMessageBox.showinfo("Not available", "Stop playback is available only for PyGame midi engine.")
 
 def pause_playMMA():
 	global hasPyGame
@@ -396,5 +409,3 @@ class CodeDialog(SimpleDialogExt):
 		# Need to remove the enter key binding as it conflicts with the text widget
 		self.unbind("<Return>")
 		return
-
-
